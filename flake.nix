@@ -22,6 +22,87 @@
         );
     in
     {
+      lib.mkContainerImage =
+        {
+          pkgs,
+          name ? "safe-run",
+          tag ? "latest",
+          extraPackages ? [ ],
+        }:
+        pkgs.dockerTools.buildImage {
+          inherit name tag;
+
+          copyToRoot = pkgs.buildEnv {
+            name = "image-root";
+            paths = [
+              pkgs.bash
+              pkgs.coreutils
+              pkgs.cacert
+            ] ++ extraPackages;
+            pathsToLink = [ "/bin" ];
+          };
+
+          extraCommands = ''
+            mkdir -p usr/bin
+            ln -s /bin/env usr/bin/env
+          '';
+
+          config = {
+            WorkingDir = "/workspace";
+            Cmd = [ "bash" ];
+            Env = [ "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt" ];
+          };
+        };
+
+      lib.mkContainerRunScript =
+        { pkgs, image }:
+        pkgs.writeShellScriptBin "safe-run" ''
+          set -euo pipefail
+
+          if ! podman image exists safe-run:latest 2>/dev/null; then
+            podman load -i ${image}
+          fi
+
+          args=(
+            --rm
+            -v "$PWD":/workspace:Z
+            -w /workspace
+            --userns=keep-id
+            --cap-drop=ALL
+            --security-opt=no-new-privileges
+            --pids-limit=256
+            --memory=1g
+            --read-only
+            --tmpfs /tmp:size=64m
+          )
+
+          if [ -t 0 ]; then
+            args+=(-it)
+          fi
+
+          if [ "''${SAFE_RUN_NETWORK:-0}" = "1" ]; then
+            args+=(--add-host=host.containers.internal:host-gateway)
+          else
+            args+=(--network=none)
+          fi
+
+          if [ -n "''${SAFE_RUN_PORTS:-}" ]; then
+            IFS=',' read -ra ports <<< "$SAFE_RUN_PORTS"
+            for port in "''${ports[@]}"; do
+              args+=(-p "$port:$port")
+            done
+          fi
+
+          podman run "''${args[@]}" safe-run:latest "$@"
+        '';
+
+      lib.mkContainerWrapCmd =
+        { pkgs, runScript }:
+        name:
+        pkgs.writeShellScriptBin name ''
+          exec ${runScript}/bin/safe-run ${name} "$@"
+        '';
+
       devShells = forEachSupportedSystem (
         { pkgs, system }:
         {
