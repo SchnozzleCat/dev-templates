@@ -3,43 +3,41 @@
 
   inputs.nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1";
 
-  outputs =
-    { self, ... }@inputs:
-    let
-      supportedSystems = [
-        "x86_64-linux"
-        "aarch64-linux"
-        "aarch64-darwin"
-      ];
-      forEachSupportedSystem =
-        f:
-        inputs.nixpkgs.lib.genAttrs supportedSystems (
-          system:
+  outputs = {self, ...} @ inputs: let
+    supportedSystems = [
+      "x86_64-linux"
+      "aarch64-linux"
+      "aarch64-darwin"
+    ];
+    forEachSupportedSystem = f:
+      inputs.nixpkgs.lib.genAttrs supportedSystems (
+        system:
           f {
             inherit system;
-            pkgs = import inputs.nixpkgs { inherit system; };
+            pkgs = import inputs.nixpkgs {inherit system;};
           }
-        );
-    in
+      );
+  in
     {
-      lib.mkContainerImage =
-        {
-          pkgs,
-          name ? "safe-run",
-          tag ? "latest",
-          extraPackages ? [ ],
-        }:
+      lib.mkContainerImage = {
+        pkgs,
+        name ? "safe-run",
+        tag ? "latest",
+        extraPackages ? [],
+      }:
         pkgs.dockerTools.buildImage {
           inherit name tag;
 
           copyToRoot = pkgs.buildEnv {
             name = "image-root";
-            paths = [
-              pkgs.bash
-              pkgs.coreutils
-              pkgs.cacert
-            ] ++ extraPackages;
-            pathsToLink = [ "/bin" ];
+            paths =
+              [
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.cacert
+              ]
+              ++ extraPackages;
+            pathsToLink = ["/bin"];
           };
 
           extraCommands = ''
@@ -49,13 +47,15 @@
 
           config = {
             WorkingDir = "/workspace";
-            Cmd = [ "bash" ];
-            Env = [ "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt" ];
+            Cmd = ["bash"];
+            Env = ["SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"];
           };
         };
 
-      lib.mkContainerRunScript =
-        { pkgs, image }:
+      lib.mkContainerRunScript = {
+        pkgs,
+        image,
+      }:
         pkgs.writeShellScriptBin "safe-run" ''
           set -euo pipefail
 
@@ -96,42 +96,43 @@
           podman run "''${args[@]}" safe-run:latest "$@"
         '';
 
-      lib.mkContainerWrapCmd =
-        { pkgs, runScript }:
-        name:
+      lib.mkContainerWrapCmd = {
+        pkgs,
+        runScript,
+      }: name:
         pkgs.writeShellScriptBin name ''
           exec ${runScript}/bin/safe-run ${name} "$@"
         '';
 
       devShells = forEachSupportedSystem (
-        { pkgs, system }:
         {
-          default =
-            let
-              getSystem = "SYSTEM=$(nix eval --impure --raw --expr 'builtins.currentSystem')";
-              forEachDir = exec: ''
-                for dir in */; do
-                  (
-                    cd "''${dir}"
+          pkgs,
+          system,
+        }: {
+          default = let
+            getSystem = "SYSTEM=$(nix eval --impure --raw --expr 'builtins.currentSystem')";
+            forEachDir = exec: ''
+              for dir in */; do
+                (
+                  cd "''${dir}"
 
-                    ${exec}
-                  )
-                done
-              '';
+                  ${exec}
+                )
+              done
+            '';
 
-              script =
-                name: runtimeInputs: text:
-                pkgs.writeShellApplication {
-                  inherit name runtimeInputs text;
-                  bashOptions = [
-                    "errexit"
-                    "pipefail"
-                  ];
-                };
-            in
+            script = name: runtimeInputs: text:
+              pkgs.writeShellApplication {
+                inherit name runtimeInputs text;
+                bashOptions = [
+                  "errexit"
+                  "pipefail"
+                ];
+              };
+          in
             pkgs.mkShellNoCC {
               packages = with pkgs; [
-                (script "build" [ ] ''
+                (script "build" [] ''
                   ${getSystem}
 
                   ${forEachDir ''
@@ -139,15 +140,15 @@
                     nix build ".#devShells.''${SYSTEM}.default"
                   ''}
                 '')
-                (script "check" [ nixfmt ] (forEachDir ''
+                (script "check" [nixfmt] (forEachDir ''
                   echo "checking ''${dir}"
                   nix flake check --all-systems --no-build
                   nix develop --command which nixfmt
                 ''))
-                (script "format" [ nixfmt ] ''
+                (script "format" [nixfmt] ''
                   git ls-files '*.nix' | xargs nix fmt
                 '')
-                (script "check-formatting" [ nixfmt ] ''
+                (script "check-formatting" [nixfmt] ''
                   git ls-files '*.nix' | xargs nixfmt --check
                 '')
 
@@ -157,11 +158,10 @@
         }
       );
 
-      formatter = forEachSupportedSystem ({ pkgs, ... }: pkgs.nixfmt);
+      formatter = forEachSupportedSystem ({pkgs, ...}: pkgs.nixfmt);
 
       packages = forEachSupportedSystem (
-        { pkgs, ... }:
-        rec {
+        {pkgs, ...}: rec {
           default = dvt;
           dvt = pkgs.writeShellApplication {
             name = "dvt";
@@ -187,216 +187,223 @@
         }
       );
     }
+    // {
+      templates = rec {
+        default = empty;
 
-    //
-
-      {
-        templates = rec {
-          default = empty;
-
-          bun = {
-            path = ./bun;
-            description = "Bun development environment";
-          };
-
-          c-cpp = {
-            path = ./c-cpp;
-            description = "C/C++ development environment";
-          };
-
-          clojure = {
-            path = ./clojure;
-            description = "Clojure development environment";
-          };
-
-          cue = {
-            path = ./cue;
-            description = "Cue development environment";
-          };
-
-          dhall = {
-            path = ./dhall;
-            description = "Dhall development environment";
-          };
-
-          elixir = {
-            path = ./elixir;
-            description = "Elixir development environment";
-          };
-
-          elm = {
-            path = ./elm;
-            description = "Elm development environment";
-          };
-
-          empty = {
-            path = ./empty;
-            description = "Empty dev template that you can customize at will";
-          };
-
-          gleam = {
-            path = ./gleam;
-            description = "Gleam development environment";
-          };
-
-          go = {
-            path = ./go;
-            description = "Go (Golang) development environment";
-          };
-
-          hashi = {
-            path = ./hashi;
-            description = "HashiCorp DevOps tools development environment";
-          };
-
-          haskell = {
-            path = ./haskell;
-            description = "Haskell development environment";
-          };
-
-          java = {
-            path = ./java;
-            description = "Java development environment";
-          };
-
-          jupyter = {
-            path = ./jupyter;
-            description = "Jupyter development environment";
-          };
-
-          kotlin = {
-            path = ./kotlin;
-            description = "Kotlin development environment";
-          };
-
-          latex = {
-            path = ./latex;
-            description = "LaTeX development environment";
-          };
-
-          lean4 = {
-            path = ./lean4;
-            description = "Lean 4 development environment";
-          };
-
-          nickel = {
-            path = ./nickel;
-            description = "Nickel development environment";
-          };
-
-          nim = {
-            path = ./nim;
-            description = "Nim development environment";
-          };
-
-          nix = {
-            path = ./nix;
-            description = "Nix development environment";
-          };
-
-          node = {
-            path = ./node;
-            description = "Node.js development environment";
-          };
-
-          ocaml = {
-            path = ./ocaml;
-            description = "OCaml development environment";
-          };
-
-          odin = {
-            path = ./odin;
-            description = "Odin development environment";
-          };
-
-          opa = {
-            path = ./opa;
-            description = "Open Policy Agent development environment";
-          };
-
-          php = {
-            path = ./php;
-            description = "PHP development environment";
-          };
-
-          platformio = {
-            path = ./platformio;
-            description = "PlatformIO development environment";
-          };
-
-          protobuf = {
-            path = ./protobuf;
-            description = "Protobuf development environment";
-          };
-
-          pulumi = {
-            path = ./pulumi;
-            description = "Pulumi development environment";
-          };
-
-          purescript = {
-            path = ./purescript;
-            description = "Purescript development environment";
-          };
-
-          python = {
-            path = ./python;
-            description = "Python development environment";
-          };
-
-          r = {
-            path = ./r;
-            description = "R development environment";
-          };
-
-          ruby = {
-            path = ./ruby;
-            description = "Ruby development environment";
-          };
-
-          rust = {
-            path = ./rust;
-            description = "Rust development environment";
-          };
-
-          scala = {
-            path = ./scala;
-            description = "Scala development environment";
-          };
-
-          shell = {
-            path = ./shell;
-            description = "Shell script development environment";
-          };
-
-          swi-prolog = {
-            path = ./swi-prolog;
-            description = "Swi-prolog development environment";
-          };
-
-          swift = {
-            path = ./swift;
-            description = "Swift development environment";
-          };
-
-          typst = {
-            path = ./typst;
-            description = "Typst development environment";
-          };
-
-          vlang = {
-            path = ./vlang;
-            description = "Vlang developent environment";
-          };
-
-          zig = {
-            path = ./zig;
-            description = "Zig development environment";
-          };
-
-          # Aliases
-          c = c-cpp;
-          cpp = c-cpp;
+        bun = {
+          path = ./bun;
+          description = "Bun development environment";
         };
+
+        c-cpp = {
+          path = ./c-cpp;
+          description = "C/C++ development environment";
+        };
+
+        clojure = {
+          path = ./clojure;
+          description = "Clojure development environment";
+        };
+
+        cue = {
+          path = ./cue;
+          description = "Cue development environment";
+        };
+
+        dotnet = {
+          path = ./dotnet;
+          description = "Dotnet development environment";
+        };
+
+        dhall = {
+          path = ./dhall;
+          description = "Dhall development environment";
+        };
+
+        elixir = {
+          path = ./elixir;
+          description = "Elixir development environment";
+        };
+
+        elm = {
+          path = ./elm;
+          description = "Elm development environment";
+        };
+
+        empty = {
+          path = ./empty;
+          description = "Empty dev template that you can customize at will";
+        };
+
+        gleam = {
+          path = ./gleam;
+          description = "Gleam development environment";
+        };
+
+        go = {
+          path = ./go;
+          description = "Go (Golang) development environment";
+        };
+
+        hashi = {
+          path = ./hashi;
+          description = "HashiCorp DevOps tools development environment";
+        };
+
+        haskell = {
+          path = ./haskell;
+          description = "Haskell development environment";
+        };
+
+        java = {
+          path = ./java;
+          description = "Java development environment";
+        };
+
+        jupyter = {
+          path = ./jupyter;
+          description = "Jupyter development environment";
+        };
+
+        kotlin = {
+          path = ./kotlin;
+          description = "Kotlin development environment";
+        };
+
+        latex = {
+          path = ./latex;
+          description = "LaTeX development environment";
+        };
+
+        lean4 = {
+          path = ./lean4;
+          description = "Lean 4 development environment";
+        };
+
+        nickel = {
+          path = ./nickel;
+          description = "Nickel development environment";
+        };
+
+        nim = {
+          path = ./nim;
+          description = "Nim development environment";
+        };
+
+        nix = {
+          path = ./nix;
+          description = "Nix development environment";
+        };
+
+        node = {
+          path = ./node;
+          description = "Node.js development environment";
+        };
+
+        node-container = {
+          path = ./node-container;
+          description = "Containerized Node.js development environment";
+        };
+
+        ocaml = {
+          path = ./ocaml;
+          description = "OCaml development environment";
+        };
+
+        odin = {
+          path = ./odin;
+          description = "Odin development environment";
+        };
+
+        opa = {
+          path = ./opa;
+          description = "Open Policy Agent development environment";
+        };
+
+        php = {
+          path = ./php;
+          description = "PHP development environment";
+        };
+
+        platformio = {
+          path = ./platformio;
+          description = "PlatformIO development environment";
+        };
+
+        protobuf = {
+          path = ./protobuf;
+          description = "Protobuf development environment";
+        };
+
+        pulumi = {
+          path = ./pulumi;
+          description = "Pulumi development environment";
+        };
+
+        purescript = {
+          path = ./purescript;
+          description = "Purescript development environment";
+        };
+
+        python = {
+          path = ./python;
+          description = "Python development environment";
+        };
+
+        r = {
+          path = ./r;
+          description = "R development environment";
+        };
+
+        ruby = {
+          path = ./ruby;
+          description = "Ruby development environment";
+        };
+
+        rust = {
+          path = ./rust;
+          description = "Rust development environment";
+        };
+
+        scala = {
+          path = ./scala;
+          description = "Scala development environment";
+        };
+
+        shell = {
+          path = ./shell;
+          description = "Shell script development environment";
+        };
+
+        swi-prolog = {
+          path = ./swi-prolog;
+          description = "Swi-prolog development environment";
+        };
+
+        swift = {
+          path = ./swift;
+          description = "Swift development environment";
+        };
+
+        typst = {
+          path = ./typst;
+          description = "Typst development environment";
+        };
+
+        vlang = {
+          path = ./vlang;
+          description = "Vlang developent environment";
+        };
+
+        zig = {
+          path = ./zig;
+          description = "Zig development environment";
+        };
+
+        # Aliases
+        c = c-cpp;
+        cpp = c-cpp;
       };
+    };
 }
