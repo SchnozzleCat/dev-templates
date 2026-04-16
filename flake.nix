@@ -297,11 +297,6 @@
         };
 
         node = {
-          path = ./node;
-          description = "Node.js development environment";
-        };
-
-        node-container = {
           path = ./node-container;
           description = "Containerized Node.js development environment";
         };
